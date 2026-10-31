@@ -33,6 +33,20 @@ CREATE TABLE IF NOT EXISTS suggestions (
 );
 
 ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS rejected_by text;
+ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS trigger text NOT NULL DEFAULT 'staff';
+ALTER TABLE hotel_rules ADD COLUMN IF NOT EXISTS auto_apply_paused boolean NOT NULL DEFAULT false;
+ALTER TABLE hotel_rules ADD COLUMN IF NOT EXISTS paused_reason text;
+
+-- Work for the suggestion worker: written by the webhook receiver (availability changed),
+-- by staff clicks (through the API) and by the worker's own timer.
+CREATE TABLE IF NOT EXISTS suggestion_requests (
+  id bigserial PRIMARY KEY,
+  hotel_id text NOT NULL,
+  room_type text NOT NULL,
+  trigger text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  processed_at timestamptz
+);
 
 -- One row per approval: the audit log and the status the dashboard shows.
 CREATE TABLE IF NOT EXISTS approvals (
@@ -85,7 +99,7 @@ END $$;
 DO $$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['hotel_rules','availability','suggestions','approvals','outbox'] LOOP
+  FOREACH t IN ARRAY ARRAY['hotel_rules','availability','suggestions','approvals','outbox','suggestion_requests'] LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
     EXECUTE format('DROP POLICY IF EXISTS hotel_isolation ON %I', t);

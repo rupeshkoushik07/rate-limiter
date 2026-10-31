@@ -9,18 +9,24 @@ namespace RateDemo.Api;
 public static class Pages
 {
     public sealed record Room(string Name, int? Occupancy, decimal? Price);
-    public sealed record Suggestion(long Id, string Room, decimal BasedOn, int? Pct, decimal? NewPrice, string? Reason, string Guardrail, string? RejectedBy);
+    public sealed record Suggestion(long Id, string Room, decimal BasedOn, int? Pct, decimal? NewPrice, string? Reason, string Guardrail, string? RejectedBy, string Trigger);
     public sealed record Approval(string Room, decimal BasedOn, decimal NewPrice, string By, string Status, string? Detail, string? RequestId, DateTime At);
-    public sealed record HotelView(string Id, string Name, decimal MinPrice, List<Room> Rooms, List<Suggestion> Suggestions, List<Approval> Approvals);
+    public sealed record HotelView(string Id, string Name, decimal MinPrice, int AutoApplyMax, bool Paused, string? PausedReason,
+        List<Room> Rooms, List<Suggestion> Suggestions, List<Approval> Approvals);
 
     private static string E(object? v) => WebUtility.HtmlEncode(v?.ToString() ?? "");
 
     public static Task<HotelView> LoadHotelAsync(string hotel) => Db.InHotelAsync(hotel, async (conn, tx) =>
     {
-        string name = hotel; decimal min = 0;
-        await using (var c = new NpgsqlCommand("SELECT name, min_price FROM hotel_rules", conn, tx))
+        string name = hotel; decimal min = 0; int autoMax = 0; bool paused = false; string? pausedReason = null;
+        await using (var c = new NpgsqlCommand(
+            "SELECT name, min_price, auto_apply_max_pct, auto_apply_paused, paused_reason FROM hotel_rules", conn, tx))
         await using (var r = await c.ExecuteReaderAsync())
-            if (await r.ReadAsync()) { name = r.GetString(0); min = r.GetDecimal(1); }
+            if (await r.ReadAsync())
+            {
+                name = r.GetString(0); min = r.GetDecimal(1); autoMax = r.GetInt32(2);
+                paused = r.GetBoolean(3); pausedReason = r.IsDBNull(4) ? null : r.GetString(4);
+            }
 
         var avail = new Dictionary<string, (int, decimal)>();
         await using (var c = new NpgsqlCommand("SELECT room_type, occupancy_pct, current_price FROM availability", conn, tx))
@@ -30,12 +36,12 @@ public static class Pages
 
         var sugg = new List<Suggestion>();
         await using (var c = new NpgsqlCommand(
-            "SELECT id, room_type, based_on, discount_pct, new_price, reason, guardrail, rejected_by FROM suggestions ORDER BY id DESC LIMIT 8", conn, tx))
+            "SELECT id, room_type, based_on, discount_pct, new_price, reason, guardrail, rejected_by, trigger FROM suggestions ORDER BY id DESC LIMIT 8", conn, tx))
         await using (var r = await c.ExecuteReaderAsync())
             while (await r.ReadAsync())
                 sugg.Add(new(r.GetInt64(0), r.GetString(1), r.GetDecimal(2), r.IsDBNull(3) ? null : r.GetInt32(3),
                     r.IsDBNull(4) ? null : r.GetDecimal(4), r.IsDBNull(5) ? null : r.GetString(5), r.GetString(6),
-                    r.IsDBNull(7) ? null : r.GetString(7)));
+                    r.IsDBNull(7) ? null : r.GetString(7), r.GetString(8)));
 
         var appr = new List<Approval>();
         await using (var c = new NpgsqlCommand("""
@@ -46,7 +52,7 @@ public static class Pages
             while (await r.ReadAsync())
                 appr.Add(new(r.GetString(0), r.GetDecimal(1), r.GetDecimal(2), r.GetString(3), r.GetString(4),
                     r.IsDBNull(5) ? null : r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6), r.GetDateTime(7)));
-        return new HotelView(hotel, name, min, rooms, sugg, appr);
+        return new HotelView(hotel, name, min, autoMax, paused, pausedReason, rooms, sugg, appr);
     });
 
     private const string Style = """
@@ -96,6 +102,14 @@ public static class Pages
         foreach (var h in hotels)
         {
             sb.Append($"<h2>{E(h.Name)}</h2><p class='muted'>Minimum price €{E(h.MinPrice)} · <a href='/hotel/{E(h.Id)}' target='_blank'>Guest booking page</a></p>");
+            var auto = h.AutoApplyMax == 0 ? "off (every change needs a human)"
+                : h.Paused ? $"<b class='bad'>PAUSED</b> ({E(h.PausedReason)})" : $"<b class='ok'>on</b> for discounts up to {h.AutoApplyMax}%";
+            sb.Append($"<p>Auto-apply: {auto} ");
+            if (h.AutoApplyMax > 0)
+                sb.Append(h.Paused
+                    ? $"<button onclick=\"act('/api/hotels/{E(h.Id)}/auto-apply/resume')\">Resume (Manager)</button>"
+                    : $"<button onclick=\"act('/api/hotels/{E(h.Id)}/auto-apply/pause')\">Kill switch: pause auto-apply</button>");
+            sb.Append("</p>");
             sb.Append("<table><tr><th>Room</th><th>Occupancy</th><th>Price in Mews (last re-read)</th><th></th></tr>");
             foreach (var r in h.Rooms)
                 sb.Append($$"""
@@ -104,11 +118,11 @@ public static class Pages
                     <td><button onclick="act('/api/demo/booking',{hotel:'{{E(h.Id)}}',room:'{{E(r.Name)}}'})">Simulate booking (webhook)</button>
                     <button onclick="act('/api/hotels/{{E(h.Id)}}/rooms/{{E(r.Name)}}/suggest')">Ask AI for a discount</button></td></tr>
                     """);
-            sb.Append("</table><b>AI suggestions</b><table><tr><th>#</th><th>Room</th><th>Based on</th><th>Discount</th><th>New price</th><th>Reason (LLM)</th><th>Guardrail</th><th></th></tr>");
+            sb.Append("</table><b>AI suggestions</b><table><tr><th>#</th><th>Room</th><th>Based on</th><th>Discount</th><th>New price</th><th>Reason (LLM)</th><th>Guardrail</th><th>Trigger</th><th></th></tr>");
             foreach (var g in h.Suggestions)
                 sb.Append($"""
                     <tr><td>{g.Id}</td><td>{E(g.Room)}</td><td>€{E(g.BasedOn)}</td><td>{E(g.Pct)}%</td><td>{(g.NewPrice is null ? "" : "€" + E(g.NewPrice))}</td>
-                    <td>{E(g.Reason)}</td><td class="{(g.Guardrail == "ok" ? "ok" : "bad")}">{E(g.Guardrail)}</td>
+                    <td>{E(g.Reason)}</td><td class="{(g.Guardrail.StartsWith("ok") ? "ok" : "bad")}">{E(g.Guardrail)}</td><td class="muted">{E(g.Trigger)}</td>
                     <td>{(g.RejectedBy is not null ? $"Rejected by {E(g.RejectedBy)}" : g.Guardrail == "ok" && s.CanApprove
                         ? $"<button onclick=\"act('/api/suggestions/{g.Id}/approve?hotel={E(h.Id)}')\">Approve</button> <button onclick=\"act('/api/suggestions/{g.Id}/reject?hotel={E(h.Id)}')\">Reject</button>" : "")}</td></tr>
                     """);

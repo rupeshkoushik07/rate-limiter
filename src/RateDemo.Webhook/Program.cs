@@ -87,6 +87,8 @@ sealed class Rereader(Channel<(string Hotel, string Room)> work, MewsClient mews
                     cmd.Parameters.AddWithValue("o", occupancy);
                     cmd.Parameters.AddWithValue("p", price);
                     await cmd.ExecuteNonQueryAsync(stop);
+                    // Numbers changed: ask the suggestion worker for a fresh suggestion (same transaction).
+                    await Pricing.RequestSuggestionAsync(conn, tx, hotel, room, "webhook");
                 });
                 log.LogInformation("Availability for {Hotel}/{Room} refreshed from Mews", hotel, room);
             }

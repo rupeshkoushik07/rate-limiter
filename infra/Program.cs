@@ -63,7 +63,8 @@ return await Deployment.RunAsync(() =>
     var idWriter = Identity("id-writer");
     var idWebhook = Identity("id-webhook");
     var idFakeMews = Identity("id-fakemews");
-    var allApps = new[] { idApi, idWriter, idWebhook, idFakeMews };
+    var idWorker = Identity("id-worker");
+    var allApps = new[] { idApi, idWriter, idWebhook, idFakeMews, idWorker };
 
     RoleAssignment Grant(string name, Input<string> principalId, string role, Input<string> scope,
         string principalType = "ServicePrincipal") => new(name, new RoleAssignmentArgs
@@ -131,7 +132,8 @@ return await Deployment.RunAsync(() =>
         foreach (var s in secrets)
             Grant($"kv-{who.GetResourceName()}-{s.GetResourceName()}", who.PrincipalId, KeyVaultSecretsUser, s.Id);
     }
-    ReadSecrets(idApi, anthropicKey, entraSecret, dbAppSecret, dbRelaySecret);              // no Mews tokens
+    ReadSecrets(idApi, entraSecret, dbAppSecret, dbRelaySecret);                           // no Mews tokens, no LLM key
+    ReadSecrets(idWorker, anthropicKey, dbAppSecret);                                      // only the LLM key + database
     ReadSecrets(idWriter, [clientToken, .. hotelTokens, dbAppSecret]);                      // no Anthropic key
     ReadSecrets(idWebhook, [clientToken, .. hotelTokens, webhookSecret, dbAppSecret]);
     ReadSecrets(idFakeMews, [clientToken, .. hotelTokens, webhookSecret]);                 // "Mews" knows its tokens
@@ -297,10 +299,13 @@ return await Deployment.RunAsync(() =>
             ["SERVICEBUS_FQDN"] = Output.Format($"{bus.Name}.servicebus.windows.net"),
             ["QUEUE_NAME"] = queue.Name,
             ["FAKE_MEWS_URL"] = internalUrl("ca-fakemews"),
-            ["CLAUDE_MODEL"] = claudeModel,
         },
         ("db-app-password", dbAppSecret, "DB_APP_PASSWORD"),
         ("db-relay-password", dbRelaySecret, "DB_RELAY_PASSWORD"));
+    // Suggestion worker: the only app that talks to the LLM. No ingress, no Mews tokens, no queue rights.
+    App("ca-worker", idWorker, "SuggestionWorker", null,
+        new() { ["CLAUDE_MODEL"] = claudeModel },
+        ("db-app-password", dbAppSecret, "DB_APP_PASSWORD"));
 
     outputs["apiUrl"] = Output.Format($"https://{api.Configuration.Apply(c => c!.Ingress!.Fqdn)}");
     return outputs;

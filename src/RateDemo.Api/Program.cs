@@ -15,7 +15,6 @@ builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<OidcLogin>();
-builder.Services.AddSingleton<Claude>();
 builder.Services.AddSingleton(_ => new ServiceBusClient(Settings.Get("SERVICEBUS_FQDN"), Settings.Credential));
 builder.Services.AddHostedService<OutboxRelay>();
 var app = builder.Build();
@@ -80,12 +79,14 @@ app.MapGet("/me", async (HttpContext ctx) =>
 // ---------- Actions (JSON, called by the dashboard) ----------
 // Every action: session from the cookie, JWT re-validated, hotel must be in the token, role must allow it.
 // The hotel in the URL is only a request; RLS + HasHotel decide.
-app.MapPost("/api/hotels/{hotel}/rooms/{room}/suggest", async (string hotel, string room, HttpContext ctx, Claude claude) =>
+// The API never calls the LLM: it records a request and the suggestion worker answers within seconds.
+app.MapPost("/api/hotels/{hotel}/rooms/{room}/suggest", async (string hotel, string room, HttpContext ctx) =>
 {
     var s = await AuthorizeAsync(ctx, hotel);
     if (s is null) return Results.Forbid();
     if (!Hotels.Rooms.Contains(room)) return Results.BadRequest();
-    return Results.Ok(await Suggestions.CreateAsync(hotel, room, claude, app.Logger));
+    await Pricing.RequestSuggestionAsync(hotel, room, $"staff: {s.Name}");
+    return Results.Ok(new { queued = true, note = "the suggestion worker will add it in a few seconds" });
 });
 
 app.MapPost("/api/suggestions/{id:long}/approve", async (long id, string hotel, HttpContext ctx) =>
@@ -93,7 +94,36 @@ app.MapPost("/api/suggestions/{id:long}/approve", async (long id, string hotel, 
     var s = await AuthorizeAsync(ctx, hotel);
     if (s is null) return Results.Forbid();
     if (!s.CanApprove) return Results.Json(new { error = "your role can't approve" }, statusCode: 403);
-    return await Suggestions.ApproveAsync(hotel, id, s.Oid, s.Name, s.MaxApprovablePct);
+    var row = await Db.InHotelAsync(hotel, async (conn, tx) =>
+    {
+        await using var cmd = new NpgsqlCommand("""
+            SELECT room_type, based_on, new_price, discount_pct FROM suggestions
+            WHERE id = @id AND guardrail = 'ok' AND rejected_by IS NULL
+            """, conn, tx);
+        cmd.Parameters.AddWithValue("id", id);
+        await using var r = await cmd.ExecuteReaderAsync();
+        return await r.ReadAsync() ? (r.GetString(0), r.GetDecimal(1), r.GetDecimal(2), r.GetInt32(3)) : ((string, decimal, decimal, int)?)null;
+    });
+    // RLS means another hotel's suggestion simply isn't found (no IDOR).
+    if (row is not { } sg) return Results.NotFound(new { error = "no approvable suggestion with that id for this hotel" });
+    if (sg.Item4 > s.MaxApprovablePct) return Results.Json(new { error = $"your role can approve up to {s.MaxApprovablePct}%" }, statusCode: 403);
+    var approvalId = await Pricing.EnqueueApprovalAsync(hotel, id, sg.Item1, sg.Item2, sg.Item3, s.Oid, s.Name);
+    return Results.Ok(new { approvalId, status = "pending" });
+});
+
+// Kill switch: anyone who can approve may PAUSE auto-apply (the safe direction); only a Manager may resume.
+app.MapPost("/api/hotels/{hotel}/auto-apply/{action}", async (string hotel, string action, HttpContext ctx) =>
+{
+    var s = await AuthorizeAsync(ctx, hotel);
+    if (s is null) return Results.Forbid();
+    if (action == "pause" && s.CanApprove)
+        await Pricing.SetPausedAsync(hotel, true, $"paused by {s.Name}");
+    else if (action == "resume" && s.Roles.Contains("Manager"))
+        await Pricing.SetPausedAsync(hotel, false, "");
+    else
+        return Results.Json(new { error = "pausing needs Approver; resuming needs Manager" }, statusCode: 403);
+    app.Logger.LogWarning("Auto-apply {Action} for {Hotel} by {Oid}", action, hotel, s.Oid);
+    return Results.Ok(new { hotel, action });
 });
 
 app.MapPost("/api/suggestions/{id:long}/reject", async (long id, string hotel, HttpContext ctx) =>
@@ -141,108 +171,6 @@ static async Task<StaffSession?> AuthorizeAsync(HttpContext ctx, string hotel)
     if (!ctx.Request.Headers.ContainsKey("X-Requested-With")) return null;   // CSRF: forms can't set this header
     var s = await OidcLogin.FromRequestAsync(ctx);
     return s is not null && s.HasHotel(hotel) ? s : null;                    // hotel must be in the token
-}
-
-static class Suggestions
-{
-    public static async Task<object> CreateAsync(string hotel, string room, Claude claude, ILogger log)
-    {
-        var (rules, avail, changesToday) = await Db.InHotelAsync(hotel, async (conn, tx) =>
-        {
-            await using var cmd = new NpgsqlCommand("""
-                SELECT r.min_price, r.max_discount_pct, r.auto_apply_max_pct, r.max_changes_per_day,
-                       a.occupancy_pct, a.current_price,
-                       (SELECT count(*) FROM approvals p WHERE p.room_type = @room AND p.created_at > now() - interval '1 day')
-                FROM hotel_rules r LEFT JOIN availability a ON a.hotel_id = r.hotel_id AND a.room_type = @room
-                """, conn, tx);
-            cmd.Parameters.AddWithValue("room", room);
-            await using var r = await cmd.ExecuteReaderAsync();
-            await r.ReadAsync();
-            var rules = new HotelRules(r.GetDecimal(0), r.GetInt32(1), r.GetInt32(2), r.GetInt32(3));
-            (int Occ, decimal Price)? avail = r.IsDBNull(4) ? null : (r.GetInt32(4), r.GetDecimal(5));
-            return (rules, avail, (int)r.GetInt64(6));
-        });
-        if (avail is null) return new { error = "no availability yet: simulate a booking so Mews sends a webhook" };
-
-        // Only Mews numbers go into the prompt, for this one hotel. No free text from anywhere.
-        var raw = await claude.SuggestAsync(avail.Value.Occ, avail.Value.Price, rules.MinPrice, rules.MaxDiscountPct);
-        var verdict = raw is { } json ? Guardrail.Check(json, avail.Value.Price, rules, changesToday)
-                                      : Verdict.Reject("LLM answer was not JSON");
-        log.LogInformation("Suggestion for {Hotel}/{Room}: guardrail {Result}", hotel, room, verdict.Reason);
-
-        int? pct = raw is { } j && j.ValueKind == JsonValueKind.Object && j.TryGetProperty("discount_pct", out var p)
-                   && p.TryGetInt32(out var v) ? v : null;
-        string? reason = raw is { } k && k.ValueKind == JsonValueKind.Object && k.TryGetProperty("reason", out var rs)
-                   && rs.ValueKind == JsonValueKind.String ? rs.GetString()![..Math.Min(200, rs.GetString()!.Length)] : null;
-
-        var id = await Db.InHotelAsync(hotel, async (conn, tx) =>
-        {
-            await using var cmd = new NpgsqlCommand("""
-                INSERT INTO suggestions (hotel_id, room_type, based_on, discount_pct, new_price, reason, guardrail)
-                VALUES (@h, @r, @b, @pct, @np, @reason, @g) RETURNING id
-                """, conn, tx);
-            cmd.Parameters.AddWithValue("h", hotel);
-            cmd.Parameters.AddWithValue("r", room);
-            cmd.Parameters.AddWithValue("b", avail.Value.Price);
-            cmd.Parameters.AddWithValue("pct", (object?)pct ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("np", (object?)verdict.NewPrice ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("reason", (object?)reason ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("g", verdict.Reason);
-            return (long)(await cmd.ExecuteScalarAsync())!;
-        });
-
-        if (verdict.Ok && verdict.AutoApply)   // hotel opted in and the discount is inside its auto-apply range
-            await EnqueueApprovalAsync(hotel, id, room, avail.Value.Price, verdict.NewPrice!.Value, "auto-apply", "Auto-apply");
-        return new { id, verdict.Ok, verdict.Reason, verdict.NewPrice, verdict.AutoApply };
-    }
-
-    public static async Task<IResult> ApproveAsync(string hotel, long suggestionId, string oid, string name, int maxPct)
-    {
-        var row = await Db.InHotelAsync(hotel, async (conn, tx) =>
-        {
-            await using var cmd = new NpgsqlCommand(
-                "SELECT room_type, based_on, new_price, discount_pct FROM suggestions WHERE id = @id AND guardrail = 'ok' AND rejected_by IS NULL", conn, tx);
-            cmd.Parameters.AddWithValue("id", suggestionId);
-            await using var r = await cmd.ExecuteReaderAsync();
-            return await r.ReadAsync() ? (r.GetString(0), r.GetDecimal(1), r.GetDecimal(2), r.GetInt32(3)) : ((string, decimal, decimal, int)?)null;
-        });
-        // RLS means another hotel's suggestion simply isn't found (no IDOR).
-        if (row is not { } s) return Results.NotFound(new { error = "no approvable suggestion with that id for this hotel" });
-        if (s.Item4 > maxPct) return Results.Json(new { error = $"your role can approve up to {maxPct}%" }, statusCode: 403);
-        var approvalId = await EnqueueApprovalAsync(hotel, suggestionId, s.Item1, s.Item2, s.Item3, oid, name);
-        return Results.Ok(new { approvalId, status = "pending" });
-    }
-
-    /// <summary>The outbox: approval and its outgoing message in ONE transaction, so neither exists without the other.</summary>
-    private static async Task<Guid> EnqueueApprovalAsync(string hotel, long suggestionId, string room, decimal basedOn,
-        decimal newPrice, string oid, string name)
-    {
-        var approvalId = Guid.NewGuid();   // fixed now; becomes the Service Bus MessageId, the same on every resend
-        var message = new ApprovedRate(approvalId, hotel, room, basedOn, newPrice, DateTimeOffset.UtcNow.AddMinutes(20));
-        await Db.InHotelAsync(hotel, async (conn, tx) =>
-        {
-            await using var a = new NpgsqlCommand("""
-                INSERT INTO approvals (approval_id, hotel_id, room_type, based_on, new_price, suggestion_id, approver_oid, approver_name)
-                VALUES (@id, @h, @r, @b, @n, @s, @oid, @name)
-                """, conn, tx);
-            a.Parameters.AddWithValue("id", approvalId);
-            a.Parameters.AddWithValue("h", hotel);
-            a.Parameters.AddWithValue("r", room);
-            a.Parameters.AddWithValue("b", basedOn);
-            a.Parameters.AddWithValue("n", newPrice);
-            a.Parameters.AddWithValue("s", suggestionId);
-            a.Parameters.AddWithValue("oid", oid);
-            a.Parameters.AddWithValue("name", name);
-            await a.ExecuteNonQueryAsync();
-            await using var o = new NpgsqlCommand(
-                "INSERT INTO outbox (approval_id, hotel_id, payload) VALUES (@id, @h, @p::jsonb)", conn, tx);
-            o.Parameters.AddWithValue("id", approvalId);
-            o.Parameters.AddWithValue("h", hotel);
-            o.Parameters.AddWithValue("p", JsonSerializer.Serialize(message));
-            await o.ExecuteNonQueryAsync();
-        });
-        return approvalId;
-    }
 }
 
 /// <summary>

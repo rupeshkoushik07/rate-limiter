@@ -1,8 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using RateDemo.Core;
+using Microsoft.Extensions.Logging;
 
-namespace RateDemo.Api;
+namespace RateDemo.Core;
 
 /// <summary>
 /// Calls Claude with numbers only and returns its raw answer for the guardrail to judge.
