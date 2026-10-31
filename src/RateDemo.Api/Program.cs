@@ -31,7 +31,7 @@ app.MapGet("/login", (OidcLogin oidc) => Results.Redirect(oidc.BeginLogin()));
 app.MapGet("/signin-oidc", async (string? code, string? state, string? error, OidcLogin oidc, HttpContext ctx) =>
 {
     if (error is not null || code is null || state is null)
-        return Results.Content(Pages.Message("Sign-in failed", error ?? "missing code"), "text/html", statusCode: 401);
+        return Results.Content(Pages.Message("Sign-in failed", error ?? "missing code"), "text/html; charset=utf-8", statusCode: 401);
     try
     {
         var session = await oidc.CompleteLoginAsync(code, state);
@@ -44,7 +44,7 @@ app.MapGet("/signin-oidc", async (string? code, string? state, string? error, Oi
     catch (Exception ex)
     {
         app.Logger.LogWarning("Login rejected: {Error}", ex.Message);
-        return Results.Content(Pages.Message("Sign-in rejected", ex.Message), "text/html", statusCode: 401);
+        return Results.Content(Pages.Message("Sign-in rejected", ex.Message), "text/html; charset=utf-8", statusCode: 401);
     }
 });
 
@@ -59,16 +59,16 @@ app.MapPost("/logout", async (HttpContext ctx) =>
 app.MapGet("/", async (HttpContext ctx) =>
 {
     var s = await OidcLogin.FromRequestAsync(ctx);
-    if (s is null) return Results.Content(Pages.SignIn(), "text/html");
+    if (s is null) return Results.Content(Pages.SignIn(), "text/html; charset=utf-8");
     var hotels = new List<Pages.HotelView>();
     foreach (var hotel in s.Hotels) hotels.Add(await Pages.LoadHotelAsync(hotel));
-    return Results.Content(Pages.Dashboard(s, hotels), "text/html");
+    return Results.Content(Pages.Dashboard(s, hotels), "text/html; charset=utf-8");
 });
 
 app.MapGet("/me", async (HttpContext ctx) =>
 {
     var s = await OidcLogin.FromRequestAsync(ctx);
-    return s is null ? Results.Redirect("/") : Results.Content(Pages.Me(s), "text/html");
+    return s is null ? Results.Redirect("/") : Results.Content(Pages.Me(s), "text/html; charset=utf-8");
 });
 
 // ---------- Actions (JSON, called by the dashboard) ----------
@@ -112,7 +112,7 @@ app.MapGet("/hotel/{hotel}", async (string hotel, IHttpClientFactory factory) =>
 {
     if (!Hotels.All.Contains(hotel)) return Results.NotFound();
     var html = await factory.CreateClient().GetStringAsync($"{Settings.Get("FAKE_MEWS_URL")}/hotel/{hotel}");
-    return Results.Content(html, "text/html");
+    return Results.Content(html, "text/html; charset=utf-8");
 });
 
 // Demo-only controls that poke the fake Mews (simulate a booking, force failures). Not part of the real design.

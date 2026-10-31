@@ -70,14 +70,14 @@ public static class Pages
         """;
 
     public static string SignIn() => $"""
-        <!doctype html><html><head><title>Rate discount demo</title>{Style}</head><body>
+        <!doctype html><html><head><meta charset="utf-8"><title>Rate discount demo</title>{Style}</head><body>
         <h1>Rate discount service (learning build)</h1>
         <div class="card"><p>Staff sign in with their company login (Microsoft Entra), using OpenID Connect + PKCE.</p>
         <p><a href="/login"><button>Sign in with Microsoft</button></a></p></div></body></html>
         """;
 
     public static string Message(string title, string text) => $"""
-        <!doctype html><html><head><title>{E(title)}</title>{Style}</head><body><h1>{E(title)}</h1>
+        <!doctype html><html><head><meta charset="utf-8"><title>{E(title)}</title>{Style}</head><body><h1>{E(title)}</h1>
         <div class="card">{E(text)}</div><a href="/">Back</a></body></html>
         """;
 
@@ -85,7 +85,7 @@ public static class Pages
     {
         var sb = new StringBuilder();
         sb.Append($"""
-            <!doctype html><html><head><title>Rate discount dashboard</title>{Style}{Script}</head><body>
+            <!doctype html><html><head><meta charset="utf-8"><title>Rate discount dashboard</title>{Style}{Script}</head><body>
             <h1>Rate discount dashboard</h1>
             <p class="muted">Signed in as <b>{E(s.Name)}</b> · roles: {E(string.Join(", ", s.Roles))} · hotels in your token: {E(string.Join(", ", s.Hotels))}
             · <a href="/me">What's in my token?</a></p>
@@ -136,7 +136,7 @@ public static class Pages
     public static string Me(StaffSession s)
     {
         var sb = new StringBuilder($"""
-            <!doctype html><html><head><title>My token</title>{Style}</head><body><h1>What happened when you signed in</h1>
+            <!doctype html><html><head><meta charset="utf-8"><title>My token</title>{Style}</head><body><h1>What happened when you signed in</h1>
             <div class="card"><ol>{string.Concat(s.LoginTrace.Select(t => $"<li>{E(t)}</li>"))}</ol></div>
             <h2>The JWT payload (claims)</h2><p class="muted">The browser never holds this token; it only has an HttpOnly cookie.
             Identity = <code>oid</code> + <code>tid</code>. Hotels and roles come from <code>roles</code>.</p><table><tr><th>Claim</th><th>Value</th></tr>
