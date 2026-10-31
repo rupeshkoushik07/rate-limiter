@@ -35,17 +35,35 @@ public sealed class Claude(IHttpClientFactory http, ILogger<Claude> log)
         request.Headers.Add("x-api-key", (await Vault.GetAsync("anthropic-api-key")).Reveal());
         request.Headers.Add("anthropic-version", "2023-06-01");
 
-        using var response = await client.SendAsync(request);
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            log.LogWarning("Claude returned {Status}", (int)response.StatusCode);
+            using var response = await client.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                log.LogWarning("Claude returned {Status}", (int)response.StatusCode);
+                return null;
+            }
+            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+            // The reply is a list of content blocks; take the first "text" block wherever it is.
+            var blocks = body.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.Array
+                ? c.EnumerateArray().ToList() : [];
+            var textBlock = blocks.FirstOrDefault(b => b.TryGetProperty("type", out var t) && t.GetString() == "text");
+            if (textBlock.ValueKind != JsonValueKind.Object || !textBlock.TryGetProperty("text", out var textElement))
+            {
+                log.LogWarning("Claude reply had no text block (blocks: {Types}, stop_reason: {Stop})",
+                    string.Join(",", blocks.Select(b => b.TryGetProperty("type", out var t) ? t.GetString() : "?")),
+                    body.TryGetProperty("stop_reason", out var sr) ? sr.ToString() : "?");
+                return null;
+            }
+            var text = (textElement.GetString() ?? "").Trim().Trim('`');
+            if (text.StartsWith("json")) text = text[4..];
+            return JsonDocument.Parse(text).RootElement.Clone();
+        }
+        catch (Exception ex)
+        {
+            // Fail closed: any odd LLM reply becomes a guardrail rejection, never an error page or a price.
+            log.LogWarning("Claude call failed: {Error}", ex.GetType().Name);
             return null;
         }
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        var text = body.GetProperty("content")[0].GetProperty("text").GetString() ?? "";
-        text = text.Trim().Trim('`');
-        if (text.StartsWith("json")) text = text[4..];
-        try { return JsonDocument.Parse(text).RootElement.Clone(); }
-        catch (JsonException) { return null; }
     }
 }
