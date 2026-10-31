@@ -6,7 +6,7 @@ RUN for p in Api Writer Webhook FakeMews; do \
       dotnet publish src/RateDemo.$p/RateDemo.$p.csproj -c Release -o /app/$p --nologo; \
     done
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app /app
 ENV ASPNETCORE_HTTP_PORTS=8080
