@@ -3,3 +3,14 @@ obj/
 *.user
 .vs/
 infra/Pulumi.*.yaml
+
+# Secrets never go in git: they live in Key Vault (apps) or nowhere (CI uses OIDC).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+secrets.json
+appsettings.*.local.json
