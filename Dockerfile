@@ -1,5 +1,5 @@
 # One image, four apps: each container app runs a different entry point with its own identity.
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
 RUN for p in Api Writer Webhook FakeMews; do \
