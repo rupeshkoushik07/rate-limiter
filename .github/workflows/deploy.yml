@@ -173,4 +173,5 @@ jobs:
         run: pulumi up --yes --skip-preview -c imageTag="$DIGEST"
 
       - name: Show the dashboard URL
-        run: echo "Dashboard: $(pulumi -C infra stack output apiUrl)" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "Dashboard: $(pulumi -C infra stack output apiUrl)" >> "$GITHUB_STEP_SUMMARY"
