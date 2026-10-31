@@ -14,7 +14,7 @@ public sealed class Claude(IHttpClientFactory http, ILogger<Claude> log)
 
     private const string System =
         "You suggest a discount for one hotel room type. You receive numbers only. " +
-        "Reply with a single JSON object and nothing else: {\"discount_pct\": <integer>, \"reason\": <string, max 120 chars>}.";
+        "Answer by calling the suggest_discount tool.";
 
     public async Task<JsonElement?> SuggestAsync(int occupancyPct, decimal currentPrice, decimal minPrice, int maxDiscountPct)
     {
@@ -27,9 +27,31 @@ public sealed class Claude(IHttpClientFactory http, ILogger<Claude> log)
             Content = JsonContent.Create(new
             {
                 model = Model,
-                max_tokens = 200,
+                max_tokens = 300,
                 system = System,
                 messages = new[] { new { role = "user", content = prompt } },
+                // Structured output: Claude must answer through this tool, so the reply is schema-shaped data,
+                // not free text to parse. The guardrail still checks every value.
+                tools = new[]
+                {
+                    new
+                    {
+                        name = "suggest_discount",
+                        description = "Suggest a discount for this room type.",
+                        input_schema = new
+                        {
+                            type = "object",
+                            properties = new Dictionary<string, object>
+                            {
+                                ["discount_pct"] = new { type = "integer", minimum = 0, maximum = maxDiscountPct },
+                                ["reason"] = new { type = "string", maxLength = 120 },
+                            },
+                            required = new[] { "discount_pct", "reason" },
+                            additionalProperties = false,
+                        },
+                    },
+                },
+                tool_choice = new { type = "tool", name = "suggest_discount" },
             }),
         };
         request.Headers.Add("x-api-key", (await Vault.GetAsync("anthropic-api-key")).Reveal());
@@ -44,20 +66,18 @@ public sealed class Claude(IHttpClientFactory http, ILogger<Claude> log)
                 return null;
             }
             var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-            // The reply is a list of content blocks; take the first "text" block wherever it is.
+            // The answer arrives as the tool call's input: already JSON, no text parsing.
             var blocks = body.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.Array
                 ? c.EnumerateArray().ToList() : [];
-            var textBlock = blocks.FirstOrDefault(b => b.TryGetProperty("type", out var t) && t.GetString() == "text");
-            if (textBlock.ValueKind != JsonValueKind.Object || !textBlock.TryGetProperty("text", out var textElement))
+            var call = blocks.FirstOrDefault(b => b.TryGetProperty("type", out var t) && t.GetString() == "tool_use");
+            if (call.ValueKind != JsonValueKind.Object || !call.TryGetProperty("input", out var input))
             {
-                log.LogWarning("Claude reply had no text block (blocks: {Types}, stop_reason: {Stop})",
+                log.LogWarning("Claude reply had no tool call (blocks: {Types}, stop_reason: {Stop})",
                     string.Join(",", blocks.Select(b => b.TryGetProperty("type", out var t) ? t.GetString() : "?")),
                     body.TryGetProperty("stop_reason", out var sr) ? sr.ToString() : "?");
                 return null;
             }
-            var text = (textElement.GetString() ?? "").Trim().Trim('`');
-            if (text.StartsWith("json")) text = text[4..];
-            return JsonDocument.Parse(text).RootElement.Clone();
+            return input.Clone();
         }
         catch (Exception ex)
         {
