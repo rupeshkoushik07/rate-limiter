@@ -111,7 +111,7 @@ static class Observability
 
         // The LLM misbehaving or being manipulated: many guardrail rejections.
         Detect("guardrail-rejection-spike", 2, "3+ AI suggestions rejected by the guardrail in 15 minutes.",
-            AppLogs + "L | where App == \"ca-worker\" and Msg startswith \"Suggestion \" and Msg !has \"guardrail ok\" | summarize n = count() | where n >= 3");
+            AppLogs + "L | where App == \"ca-worker\" and Msg matches regex @\"^Suggestion \\d+ for \" and Msg !has \"guardrail ok\" | summarize n = count() | where n >= 3");
 
         // Forged webhooks.
         Detect("webhook-bad-token", 2, "3+ webhooks with a wrong secret token in 5 minutes.",
