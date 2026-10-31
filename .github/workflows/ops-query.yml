@@ -1,0 +1,44 @@
+# Run a KQL query against the Log Analytics workspace, by hand. The repo is public, so the result is
+# encrypted (random AES key, wrapped with the operator's RSA public key) and only that key's holder can read it.
+name: ops-query
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: KQL query
+        required: true
+        default: "ContainerAppConsoleLogs_CL | where TimeGenerated > ago(30m) | project TimeGenerated, ContainerAppName_s, Log_s | order by TimeGenerated desc | take 100"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  query:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Query and encrypt
+        env:
+          QUERY: ${{ inputs.query }}
+          OPS_PUBLIC_KEY: ${{ vars.OPS_PUBLIC_KEY }}
+        run: |
+          WS=$(az monitor log-analytics workspace list -g rg-ratedemo --query "[0].customerId" -o tsv)
+          az monitor log-analytics query -w "$WS" --analytics-query "$QUERY" -o json > result.json 2> err.txt || cat err.txt > result.json
+          printf '%s\n' "$OPS_PUBLIC_KEY" > ops.pub
+          openssl rand -out aes.key 32
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in result.json -out result.enc -pass file:aes.key
+          openssl pkeyutl -encrypt -pubin -inkey ops.pub -in aes.key -out aes.key.enc -pkeyopt rsa_padding_mode:oaep
+          rm -f result.json err.txt aes.key
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: result
+          path: |
+            result.enc
+            aes.key.enc
+          retention-days: 1
