@@ -1,0 +1,3 @@
+name: ratedemo
+runtime: dotnet
+description: Rate-discount learning build on Azure (Container Apps, Service Bus, Key Vault, Postgres)

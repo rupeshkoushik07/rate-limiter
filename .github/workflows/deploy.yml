@@ -1,0 +1,122 @@
+# Test, then deploy with Pulumi. GitHub signs in to Azure with OIDC: a short-lived token from GitHub is
+# swapped for an Azure token for id-github-deploy, which trusts only pushes to main of this repo.
+# No Azure secret is stored in GitHub; the repo variables below are IDs, not secrets.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write      # lets the job request the OIDC token
+  contents: read
+
+concurrency: deploy
+
+env:
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  PULUMI_BACKEND_URL: ${{ vars.PULUMI_BACKEND_URL }}
+  AZURE_KEYVAULT_AUTH_VIA_CLI: "true"
+  PULUMI_SKIP_UPDATE_CHECK: "true"
+  RG: rg-ratedemo
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 8.0.x
+      - run: dotnet test tests/RateDemo.Tests/RateDemo.Tests.csproj
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Azure login (OIDC, no secret)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install Pulumi
+        run: |
+          curl -fsSL https://get.pulumi.com | sh -s -- --version 3.273.0
+          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
+
+      - name: Select stack and set config
+        working-directory: infra
+        run: |
+          SA="${PULUMI_BACKEND_URL##*storage_account=}"
+          echo "STATE_SA=$SA" >> "$GITHUB_ENV"
+          # The stack's config file (with its encrypted data key) lives next to the state, not in git.
+          az storage blob download --account-name "$SA" -c pulumi -n config/Pulumi.dev.yaml -f Pulumi.dev.yaml \
+            --auth-mode login -o none 2>/dev/null || echo "first run: new stack"
+          pulumi stack select dev --create --secrets-provider "${{ vars.PULUMI_SECRETS_PROVIDER }}"
+          # Object ID of this workflow's own identity, read from its Azure token (used to grant AcrPush).
+          DEPLOYER=$(az account get-access-token --query accessToken -o tsv \
+            | python3 -c 'import sys,json,base64;p=sys.stdin.read().split(".")[1];print(json.loads(base64.urlsafe_b64decode(p+"=="))["oid"])')
+          pulumi config set tenantId "$ARM_TENANT_ID"
+          pulumi config set staffClientId "${{ vars.STAFF_APP_CLIENT_ID }}"
+          pulumi config set deployerObjectId "$DEPLOYER"
+          pulumi config set location "${{ vars.LOCATION }}"
+          pulumi config set allowedIps "${{ vars.ALLOWED_IPS }}"
+          az storage blob upload --account-name "$SA" -c pulumi -n config/Pulumi.dev.yaml -f Pulumi.dev.yaml \
+            --auth-mode login --overwrite -o none
+
+      - name: "Pulumi up #1: infrastructure (keeps the running image)"
+        working-directory: infra
+        run: |
+          PREV=$(pulumi stack output imageTag 2>/dev/null || true)
+          pulumi up --yes --skip-preview -c imageTag="$PREV"
+
+      - name: Build and push the image
+        run: |
+          ACR=$(pulumi -C infra stack output acrLoginServer)
+          az acr login --name "${ACR%%.*}"
+          docker build -t "$ACR/ratedemo:${GITHUB_SHA::12}" .
+          docker push "$ACR/ratedemo:${GITHUB_SHA::12}"
+
+      - name: Database roles and schema (row-level security)
+        run: |
+          sudo apt-get install -y -qq postgresql-client > /dev/null
+          HOST=$(pulumi -C infra stack output pgHost)
+          SERVER=$(pulumi -C infra stack output pgServerName)
+          ADMIN_PW=$(pulumi -C infra stack output pgAdminPassword --show-secrets)
+          APP_PW=$(pulumi -C infra stack output pgAppPassword --show-secrets)
+          RELAY_PW=$(pulumi -C infra stack output pgRelayPassword --show-secrets)
+          echo "::add-mask::$ADMIN_PW"; echo "::add-mask::$APP_PW"; echo "::add-mask::$RELAY_PW"
+          IP=$(curl -s https://api.ipify.org)
+          # Open the database to this runner only, for this step only.
+          az postgres flexible-server firewall-rule create -g "$RG" -n "$SERVER" --rule-name gh-runner \
+            --start-ip-address "$IP" --end-ip-address "$IP" -o none
+          trap 'az postgres flexible-server firewall-rule delete -g "$RG" -n "$SERVER" --rule-name gh-runner --yes -o none' EXIT
+          export PGPASSWORD="$ADMIN_PW"
+          CONN="host=$HOST dbname=ratedemo user=pgowner sslmode=require"
+          psql "$CONN" -v ON_ERROR_STOP=1 -v app_pw="$APP_PW" -v relay_pw="$RELAY_PW" <<'SQL'
+          SELECT 'CREATE ROLE app_user LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_user') \gexec
+          SELECT 'CREATE ROLE relay_user LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'relay_user') \gexec
+          ALTER ROLE app_user PASSWORD :'app_pw';
+          ALTER ROLE relay_user PASSWORD :'relay_pw';
+          SQL
+          psql "$CONN" -v ON_ERROR_STOP=1 -f db/schema.sql
+
+      - name: "Pulumi up #2: roll out the new image"
+        working-directory: infra
+        run: pulumi up --yes --skip-preview -c imageTag="${GITHUB_SHA::12}"
+
+      - name: Show the dashboard URL
+        run: echo "Dashboard: $(pulumi -C infra stack output apiUrl)" >> "$GITHUB_STEP_SUMMARY"

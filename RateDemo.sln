@@ -1,0 +1,64 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{B8DC4D17-78A2-4347-8F8F-D721BEA8F663}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RateDemo.Api", "src\RateDemo.Api\RateDemo.Api.csproj", "{38E45889-9E75-454C-BDCE-4956AF4D855F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RateDemo.Core", "src\RateDemo.Core\RateDemo.Core.csproj", "{1CCA3A71-1165-40E5-903C-EDDC1A0B30F4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RateDemo.FakeMews", "src\RateDemo.FakeMews\RateDemo.FakeMews.csproj", "{26E4ACC9-F6C3-470E-97FC-750709996D4B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RateDemo.Webhook", "src\RateDemo.Webhook\RateDemo.Webhook.csproj", "{E06164E8-5A28-4990-92DB-7217363D6FEF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RateDemo.Writer", "src\RateDemo.Writer\RateDemo.Writer.csproj", "{FEAAC94A-64C9-4A21-BCD0-E6746D9A9661}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{1F9FDE3E-497E-401F-B99F-C2835F334032}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RateDemo.Tests", "tests\RateDemo.Tests\RateDemo.Tests.csproj", "{2BE7B890-31C6-4334-97AF-4CC9D979286E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{38E45889-9E75-454C-BDCE-4956AF4D855F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38E45889-9E75-454C-BDCE-4956AF4D855F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38E45889-9E75-454C-BDCE-4956AF4D855F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38E45889-9E75-454C-BDCE-4956AF4D855F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1CCA3A71-1165-40E5-903C-EDDC1A0B30F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1CCA3A71-1165-40E5-903C-EDDC1A0B30F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1CCA3A71-1165-40E5-903C-EDDC1A0B30F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1CCA3A71-1165-40E5-903C-EDDC1A0B30F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{26E4ACC9-F6C3-470E-97FC-750709996D4B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{26E4ACC9-F6C3-470E-97FC-750709996D4B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{26E4ACC9-F6C3-470E-97FC-750709996D4B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{26E4ACC9-F6C3-470E-97FC-750709996D4B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E06164E8-5A28-4990-92DB-7217363D6FEF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E06164E8-5A28-4990-92DB-7217363D6FEF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E06164E8-5A28-4990-92DB-7217363D6FEF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E06164E8-5A28-4990-92DB-7217363D6FEF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FEAAC94A-64C9-4A21-BCD0-E6746D9A9661}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FEAAC94A-64C9-4A21-BCD0-E6746D9A9661}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FEAAC94A-64C9-4A21-BCD0-E6746D9A9661}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FEAAC94A-64C9-4A21-BCD0-E6746D9A9661}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2BE7B890-31C6-4334-97AF-4CC9D979286E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2BE7B890-31C6-4334-97AF-4CC9D979286E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2BE7B890-31C6-4334-97AF-4CC9D979286E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2BE7B890-31C6-4334-97AF-4CC9D979286E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{38E45889-9E75-454C-BDCE-4956AF4D855F} = {B8DC4D17-78A2-4347-8F8F-D721BEA8F663}
+		{1CCA3A71-1165-40E5-903C-EDDC1A0B30F4} = {B8DC4D17-78A2-4347-8F8F-D721BEA8F663}
+		{26E4ACC9-F6C3-470E-97FC-750709996D4B} = {B8DC4D17-78A2-4347-8F8F-D721BEA8F663}
+		{E06164E8-5A28-4990-92DB-7217363D6FEF} = {B8DC4D17-78A2-4347-8F8F-D721BEA8F663}
+		{FEAAC94A-64C9-4A21-BCD0-E6746D9A9661} = {B8DC4D17-78A2-4347-8F8F-D721BEA8F663}
+		{2BE7B890-31C6-4334-97AF-4CC9D979286E} = {1F9FDE3E-497E-401F-B99F-C2835F334032}
+	EndGlobalSection
+EndGlobal
