@@ -38,7 +38,7 @@ return await Deployment.RunAsync(() =>
     const string ServiceBusSender = "69a216fc-b8fb-44d8-bc22-1f3c2cd27a39";
     const string ServiceBusReceiver = "4f6d3b9b-027b-4f4c-9142-0e5a2a2247e0";
     const string AcrPull = "7f951dda-4ed3-4680-a7ca-43fe172d538d";
-    const string AcrPush = "8311e382-0749-4cb8-b61a-1f7be2f8e9a2";
+    const string AcrPush = "8311e382-0749-4cb8-b61a-1f7be2f8e9a3";
 
     var suffix = new RandomString("suffix", new RandomStringArgs { Length = 6, Special = false, Upper = false });
 
