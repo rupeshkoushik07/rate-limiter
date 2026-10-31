@@ -205,7 +205,8 @@ return await Deployment.RunAsync(() =>
     if (string.IsNullOrEmpty(imageTag)) return outputs;   // first run: infra only, no image pushed yet
 
     // ---------- The four apps: same image, different entry point, different identity ----------
-    var image = Output.Format($"{acr.LoginServer}/ratedemo:{imageTag}");
+    // A digest (sha256:...) pins the exact scanned and signed image; a tag is only a movable label.
+    var image = Output.Format($"{acr.LoginServer}/ratedemo{(imageTag.StartsWith("sha256:") ? "@" : ":")}{imageTag}");
     var kvUrl = Output.Format($"https://{vault.Name}.vault.azure.net/");
     var internalUrl = new Func<string, Output<string>>(app => env.DefaultDomain.Apply(d => $"https://{app}.internal.{d}"));
 

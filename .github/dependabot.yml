@@ -1,0 +1,18 @@
+# Weekly update PRs for NuGet packages, GitHub Actions (SHA pins included) and the Docker base images.
+# A 7-day cooldown waits before proposing a brand-new release (supply-chain caution).
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directories: ["/src/*", "/tests/*", "/infra"]
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+    groups:
+      nuget: { patterns: ["*"] }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }
+  - package-ecosystem: docker
+    directory: /
+    schedule: { interval: weekly }
+    cooldown: { default-days: 7 }

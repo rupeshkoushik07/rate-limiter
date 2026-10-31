@@ -8,7 +8,7 @@
 #     (Viewer / Approver / Manager and one role per hotel); you get Approver + Hotel.Barcelona
 set -euo pipefail
 
-REPO="rupeshkoushik07/mews-rate-demo"
+REPO="rupeshkoushik07/rate-limiter"
 LOCATION="${LOCATION:-northeurope}"
 STATE_RG="rg-ratedemo-state"
 APP_RG="rg-ratedemo"
