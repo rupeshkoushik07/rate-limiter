@@ -140,8 +140,10 @@ return await Deployment.RunAsync(() =>
     var dbAppSecret = NewSecret("db-app-password", pgApp.Result);
     var dbRelaySecret = NewSecret("db-relay-password", pgRelay.Result);
 
+    var allowedReads = new List<(Output<string> PrincipalId, string Secret)>();   // feeds the Key Vault detection
     void ReadSecrets(UserAssignedIdentity who, params Secret[] secrets)
     {
+        foreach (var s in secrets) allowedReads.Add((who.PrincipalId, s.GetResourceName()));
         foreach (var s in secrets)
             Grant($"kv-{who.GetResourceName()}-{s.GetResourceName()}", who.PrincipalId, KeyVaultSecretsUser, s.Id, owner: who);
     }
@@ -198,6 +200,12 @@ return await Deployment.RunAsync(() =>
         ResourceGroupName = rg, ServerName = pg.Name, FirewallRuleName = "AllowAzureServices",
         StartIpAddress = "0.0.0.0", EndIpAddress = "0.0.0.0",
     });
+
+    // ---------- Detection: diagnostics, alert rules, operations workbook ----------
+    var kvAllowed = Output.All(allowedReads.Select(a => a.PrincipalId)).Apply(ids =>
+        string.Join(", ", ids.Select((id, i) => $"\"{id}\", \"{allowedReads[i].Secret}\"")));
+    Observability.Create(rg, location, logs, vault.Id, bus.Id, pg.Id,
+        sub.Apply(s => $"/subscriptions/{s}/resourceGroups/{rg}"), kvAllowed, config.Get("alertEmail"));
 
     // ---------- Container Apps environment ----------
     var env = new ManagedEnvironment("cae", new ManagedEnvironmentArgs

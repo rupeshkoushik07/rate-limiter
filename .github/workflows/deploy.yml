@@ -79,6 +79,7 @@ jobs:
           pulumi config set deployerObjectId "$DEPLOYER"
           pulumi config set location "${{ vars.LOCATION }}"
           pulumi config set allowedIps "${{ vars.ALLOWED_IPS }}"
+          pulumi config set alertEmail "${{ vars.ALERT_EMAIL }}"
           az storage blob upload --account-name "$SA" -c pulumi -n config/Pulumi.dev.yaml -f Pulumi.dev.yaml \
             --auth-mode login --overwrite -o none
 
