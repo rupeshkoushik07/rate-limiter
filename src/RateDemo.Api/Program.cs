@@ -143,6 +143,24 @@ app.MapPost("/api/suggestions/{id:long}/reject", async (long id, string hotel, H
     return updated == 1 ? Results.Ok(new { rejected = id }) : Results.NotFound();
 });
 
+// CODEQL CANARY: deliberately vulnerable, never merge. SQL injection + open redirect.
+app.MapGet("/api/canary/search", async (HttpContext ctx) =>
+{
+    string room = ctx.Request.Query["room"]!;
+    var count = await Db.InHotelAsync("barcelona", async (conn, tx) =>
+    {
+        await using var cmd = new NpgsqlCommand { Connection = conn, Transaction = tx };
+        cmd.CommandText = "SELECT count(*) FROM availability WHERE room = '" + room + "'";
+        return await cmd.ExecuteScalarAsync();
+    });
+    return Results.Ok(new { count });
+});
+app.MapGet("/api/canary/go", (HttpContext ctx) =>
+{
+    ctx.Response.Redirect(ctx.Request.Query["next"]!);
+    return Task.CompletedTask;
+});
+
 // The hotels' public booking pages (what guests see), served by "Mews". No login: it's the public website.
 app.MapGet("/hotel/{hotel}", async (string hotel, IHttpClientFactory factory) =>
 {
