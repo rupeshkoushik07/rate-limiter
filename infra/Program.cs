@@ -109,7 +109,13 @@ return await Deployment.RunAsync(() =>
     var clientToken = NewSecret("mews-client-token", Random("rnd-client-token").Result);
     var hotelTokens = new[] { "barcelona", "madrid" }
         .Select(h => NewSecret($"mews-access-token-{h}", Random($"rnd-token-{h}").Result)).ToArray();
-    var webhookSecret = NewSecret("mews-webhook-secret", Random("rnd-webhook", 40).Result);
+    // Change "rotation" to rotate: Pulumi generates a new value and writes it to Key Vault.
+    // 2026-10-31: rotated after the old value showed up in HttpClient request logs.
+    var webhookRandom = new RandomPassword("rnd-webhook", new RandomPasswordArgs
+    {
+        Length = 40, Special = false, Keepers = { ["rotation"] = "2026-10-31-1" },
+    });
+    var webhookSecret = NewSecret("mews-webhook-secret", webhookRandom.Result);
     // Set by you, never by the pipeline: placeholders that later runs don't overwrite.
     var anthropicKey = NewSecret("anthropic-api-key", "set-me", setByHuman: true);
     var entraSecret = NewSecret("entra-client-secret", "set-me", setByHuman: true);

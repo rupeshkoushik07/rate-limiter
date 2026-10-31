@@ -7,6 +7,11 @@ using RateDemo.Api;
 using RateDemo.Core;
 
 var builder = WebApplication.CreateBuilder(args);
+// One JSON object per log line, so KQL can parse it. HttpClient request logs are off: they print full
+// URLs, and a webhook URL carries its secret token in the query string.
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole();
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.AspNetCore", LogLevel.Warning);
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<OidcLogin>();

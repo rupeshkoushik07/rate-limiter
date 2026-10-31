@@ -6,6 +6,11 @@ using Npgsql;
 using RateDemo.Core;
 
 var builder = Host.CreateApplicationBuilder(args);
+// One JSON object per log line, so KQL can parse it. HttpClient request logs are off: they print full
+// URLs, and a webhook URL carries its secret token in the query string.
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole();
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Services.AddHttpClient<MewsClient>(c =>
 {
     c.BaseAddress = new Uri(Settings.Get("MEWS_BASE_URL") + "/");

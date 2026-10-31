@@ -8,6 +8,11 @@ using System.Text.Json;
 using RateDemo.Core;
 
 var builder = WebApplication.CreateBuilder(args);
+// One JSON object per log line, so KQL can parse it. HttpClient request logs are off: they print full
+// URLs, and a webhook URL carries its secret token in the query string.
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole();
+builder.Logging.AddFilter("System.Net.Http.HttpClient", LogLevel.Warning);
 builder.Services.AddHttpClient();
 var app = builder.Build();
 
@@ -21,11 +26,14 @@ var windows = new ConcurrentDictionary<string, Queue<DateTime>>();
 var chaos = new ConcurrentDictionary<string, int>(new[] { "conflict", "rate_limit", "slow", "lose_reply" }
     .Select(k => KeyValuePair.Create(k, 0)));
 
+// Mews's API uses PascalCase JSON (EnterpriseId, RoomType, Price); .NET defaults to camelCase.
+var mewsJson = new JsonSerializerOptions { PropertyNamingPolicy = null };
+
 IResult Reply(HttpContext ctx, int status, object body, int? retryAfter = null)
 {
     ctx.Response.Headers["Request-Id"] = Guid.NewGuid().ToString();
     if (retryAfter is not null) ctx.Response.Headers.RetryAfter = retryAfter.ToString();
-    return Results.Json(body, statusCode: status);
+    return Results.Json(body, mewsJson, statusCode: status);
 }
 
 bool Consume(string key)
@@ -133,7 +141,7 @@ app.MapPost("/simulate/booking", async (HttpContext ctx, IHttpClientFactory fact
     var secret = (await Vault.GetAsync("mews-webhook-secret")).Reveal();
     var url = $"{Settings.Get("WEBHOOK_URL")}?token={Uri.EscapeDataString(secret)}";
     var payload = new { EnterpriseId = key.Item1, Events = new[] { new { Type = "RateChanged", RoomType = key.Item2 } } };
-    var response = await factory.CreateClient().PostAsJsonAsync(url, payload);
+    var response = await factory.CreateClient().PostAsJsonAsync(url, payload, mewsJson);
     return Results.Ok(new { webhookStatus = (int)response.StatusCode, occupancy = occupancy[key] });
 });
 
