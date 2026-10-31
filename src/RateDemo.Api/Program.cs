@@ -52,7 +52,8 @@ app.MapPost("/logout", async (HttpContext ctx) =>
 {
     if (ctx.Request.Cookies.TryGetValue(OidcLogin.CookieName, out var id)) await OidcLogin.DeleteAsync(id);
     ctx.Response.Cookies.Delete(OidcLogin.CookieName, new CookieOptions { Secure = true, Path = "/" });
-    return Results.Redirect("/");
+    // Single sign-out: also end the Microsoft session, or the next sign-in is silent (shared front-desk PCs).
+    return Results.Redirect($"https://login.microsoftonline.com/{Settings.Get("ENTRA_TENANT_ID")}/oauth2/v2.0/logout");
 });
 
 // ---------- Pages ----------

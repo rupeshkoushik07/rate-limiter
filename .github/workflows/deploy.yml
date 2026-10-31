@@ -36,6 +36,10 @@ jobs:
         with:
           dotnet-version: 8.0.x
       - run: dotnet test tests/RateDemo.Tests/RateDemo.Tests.csproj
+      - name: CrossGuard rule tests
+        run: |
+          pip install -q pytest
+          cd policy && python3 -m pytest -q test_rules.py
 
   deploy:
     needs: test
