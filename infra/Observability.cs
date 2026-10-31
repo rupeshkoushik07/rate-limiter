@@ -166,6 +166,8 @@ static class Observability
                 {
                     new AlertRuleAnyOfOrLeafConditionArgs { Field = "category", Equals = "Administrative" },
                     new AlertRuleAnyOfOrLeafConditionArgs { Field = "resourceType", Equals = "Microsoft.Authorization/roleAssignments" },
+                    // Each change logs "Started" then "Succeeded"; alert once, on the result.
+                    new AlertRuleAnyOfOrLeafConditionArgs { Field = "status", Equals = "Succeeded" },
                 },
             },
             Actions = new ActionListArgs
