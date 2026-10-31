@@ -16,3 +16,7 @@ updates:
     directory: /
     schedule: { interval: weekly }
     cooldown: { default-days: 7 }
+    ignore:
+      # A runtime major version (8 -> 10) must change together with TargetFramework: do it by hand.
+      - dependency-name: "dotnet/*"
+        update-types: ["version-update:semver-major"]
