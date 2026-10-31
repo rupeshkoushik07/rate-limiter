@@ -107,6 +107,23 @@ app.MapGet("/state", () => Results.Ok(prices.Select(p => new
     hotel = p.Key.Item1, room = p.Key.Item2, price = p.Value, occupancy = occupancy[p.Key],
 })));
 
+// The hotel's public booking page: what guests see. Prices come straight from "Mews", so an approved
+// discount shows up here once the rate writer has applied it.
+app.MapGet("/hotel/{hotel}", (string hotel) =>
+{
+    if (!Hotels.All.Contains(hotel)) return Results.NotFound();
+    var name = System.Net.WebUtility.HtmlEncode(char.ToUpper(hotel[0]) + hotel[1..]);
+    var rows = string.Concat(prices.Where(p => p.Key.Item1 == hotel).Select(p =>
+        $"<tr><td>{System.Net.WebUtility.HtmlEncode(p.Key.Item2)}</td><td>€{p.Value:0.00}</td><td>{100 - occupancy[p.Key]}% of rooms left</td></tr>"));
+    return Results.Content($$"""
+        <!doctype html><html><head><title>Hotel {{name}}</title><meta http-equiv="refresh" content="5">
+        <style>body{font-family:Georgia,serif;max-width:640px;margin:40px auto;padding:0 16px}
+        table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #ddd;padding:10px;text-align:left}</style></head>
+        <body><h1>Hotel {{name}}</h1><p>Book a room for tonight. Prices update live.</p>
+        <table><tr><th>Room</th><th>Price per night</th><th>Availability</th></tr>{{rows}}</table></body></html>
+        """, "text/html");
+});
+
 // Pretend a guest booked: occupancy rises and Mews sends a webhook that carries IDs only.
 app.MapPost("/simulate/booking", async (HttpContext ctx, IHttpClientFactory factory) =>
 {

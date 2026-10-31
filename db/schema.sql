@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS suggestions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS rejected_by text;
+
 -- One row per approval: the audit log and the status the dashboard shows.
 CREATE TABLE IF NOT EXISTS approvals (
   approval_id uuid PRIMARY KEY,

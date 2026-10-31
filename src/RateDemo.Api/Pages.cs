@@ -9,7 +9,7 @@ namespace RateDemo.Api;
 public static class Pages
 {
     public sealed record Room(string Name, int? Occupancy, decimal? Price);
-    public sealed record Suggestion(long Id, string Room, decimal BasedOn, int? Pct, decimal? NewPrice, string? Reason, string Guardrail);
+    public sealed record Suggestion(long Id, string Room, decimal BasedOn, int? Pct, decimal? NewPrice, string? Reason, string Guardrail, string? RejectedBy);
     public sealed record Approval(string Room, decimal BasedOn, decimal NewPrice, string By, string Status, string? Detail, string? RequestId, DateTime At);
     public sealed record HotelView(string Id, string Name, decimal MinPrice, List<Room> Rooms, List<Suggestion> Suggestions, List<Approval> Approvals);
 
@@ -30,11 +30,12 @@ public static class Pages
 
         var sugg = new List<Suggestion>();
         await using (var c = new NpgsqlCommand(
-            "SELECT id, room_type, based_on, discount_pct, new_price, reason, guardrail FROM suggestions ORDER BY id DESC LIMIT 8", conn, tx))
+            "SELECT id, room_type, based_on, discount_pct, new_price, reason, guardrail, rejected_by FROM suggestions ORDER BY id DESC LIMIT 8", conn, tx))
         await using (var r = await c.ExecuteReaderAsync())
             while (await r.ReadAsync())
                 sugg.Add(new(r.GetInt64(0), r.GetString(1), r.GetDecimal(2), r.IsDBNull(3) ? null : r.GetInt32(3),
-                    r.IsDBNull(4) ? null : r.GetDecimal(4), r.IsDBNull(5) ? null : r.GetString(5), r.GetString(6)));
+                    r.IsDBNull(4) ? null : r.GetDecimal(4), r.IsDBNull(5) ? null : r.GetString(5), r.GetString(6),
+                    r.IsDBNull(7) ? null : r.GetString(7)));
 
         var appr = new List<Approval>();
         await using (var c = new NpgsqlCommand("""
@@ -94,7 +95,7 @@ public static class Pages
         if (hotels.Count == 0) sb.Append("<div class='card bad'>Your token has no hotel role, so you see nothing (deny by default).</div>");
         foreach (var h in hotels)
         {
-            sb.Append($"<h2>{E(h.Name)}</h2><p class='muted'>Minimum price €{E(h.MinPrice)}</p>");
+            sb.Append($"<h2>{E(h.Name)}</h2><p class='muted'>Minimum price €{E(h.MinPrice)} · <a href='/hotel/{E(h.Id)}' target='_blank'>Guest booking page</a></p>");
             sb.Append("<table><tr><th>Room</th><th>Occupancy</th><th>Price in Mews (last re-read)</th><th></th></tr>");
             foreach (var r in h.Rooms)
                 sb.Append($$"""
@@ -108,7 +109,8 @@ public static class Pages
                 sb.Append($"""
                     <tr><td>{g.Id}</td><td>{E(g.Room)}</td><td>€{E(g.BasedOn)}</td><td>{E(g.Pct)}%</td><td>{(g.NewPrice is null ? "" : "€" + E(g.NewPrice))}</td>
                     <td>{E(g.Reason)}</td><td class="{(g.Guardrail == "ok" ? "ok" : "bad")}">{E(g.Guardrail)}</td>
-                    <td>{(g.Guardrail == "ok" && s.CanApprove ? $"<button onclick=\"act('/api/suggestions/{g.Id}/approve?hotel={E(h.Id)}')\">Approve</button>" : "")}</td></tr>
+                    <td>{(g.RejectedBy is not null ? $"Rejected by {E(g.RejectedBy)}" : g.Guardrail == "ok" && s.CanApprove
+                        ? $"<button onclick=\"act('/api/suggestions/{g.Id}/approve?hotel={E(h.Id)}')\">Approve</button> <button onclick=\"act('/api/suggestions/{g.Id}/reject?hotel={E(h.Id)}')\">Reject</button>" : "")}</td></tr>
                     """);
             sb.Append("</table><b>Approvals (audit log + status from the rate writer)</b><table><tr><th>Room</th><th>Price</th><th>By</th><th>Status</th><th>Detail</th><th>Mews Request-Id</th></tr>");
             foreach (var a in h.Approvals)

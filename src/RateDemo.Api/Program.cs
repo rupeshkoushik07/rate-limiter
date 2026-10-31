@@ -90,6 +90,31 @@ app.MapPost("/api/suggestions/{id:long}/approve", async (long id, string hotel, 
     return await Suggestions.ApproveAsync(hotel, id, s.Oid, s.Name, s.MaxApprovablePct);
 });
 
+app.MapPost("/api/suggestions/{id:long}/reject", async (long id, string hotel, HttpContext ctx) =>
+{
+    var s = await AuthorizeAsync(ctx, hotel);
+    if (s is null) return Results.Forbid();
+    if (!s.CanApprove) return Results.Json(new { error = "your role can't reject" }, statusCode: 403);
+    var updated = await Db.InHotelAsync(hotel, async (conn, tx) =>
+    {
+        await using var cmd = new NpgsqlCommand(
+            "UPDATE suggestions SET rejected_by = @who WHERE id = @id AND rejected_by IS NULL", conn, tx);
+        cmd.Parameters.AddWithValue("who", s.Name);
+        cmd.Parameters.AddWithValue("id", id);
+        return await cmd.ExecuteNonQueryAsync();
+    });
+    app.Logger.LogInformation("Suggestion {Id} for {Hotel} rejected by {Oid}", id, hotel, s.Oid);
+    return updated == 1 ? Results.Ok(new { rejected = id }) : Results.NotFound();
+});
+
+// The hotels' public booking pages (what guests see), served by "Mews". No login: it's the public website.
+app.MapGet("/hotel/{hotel}", async (string hotel, IHttpClientFactory factory) =>
+{
+    if (!Hotels.All.Contains(hotel)) return Results.NotFound();
+    var html = await factory.CreateClient().GetStringAsync($"{Settings.Get("FAKE_MEWS_URL")}/hotel/{hotel}");
+    return Results.Content(html, "text/html");
+});
+
 // Demo-only controls that poke the fake Mews (simulate a booking, force failures). Not part of the real design.
 app.MapPost("/api/demo/{action}", async (string action, HttpContext ctx, IHttpClientFactory factory) =>
 {
@@ -170,7 +195,7 @@ static class Suggestions
         var row = await Db.InHotelAsync(hotel, async (conn, tx) =>
         {
             await using var cmd = new NpgsqlCommand(
-                "SELECT room_type, based_on, new_price, discount_pct FROM suggestions WHERE id = @id AND guardrail = 'ok'", conn, tx);
+                "SELECT room_type, based_on, new_price, discount_pct FROM suggestions WHERE id = @id AND guardrail = 'ok' AND rejected_by IS NULL", conn, tx);
             cmd.Parameters.AddWithValue("id", suggestionId);
             await using var r = await cmd.ExecuteReaderAsync();
             return await r.ReadAsync() ? (r.GetString(0), r.GetDecimal(1), r.GetDecimal(2), r.GetInt32(3)) : ((string, decimal, decimal, int)?)null;
