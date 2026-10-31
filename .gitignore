@@ -14,3 +14,4 @@ infra/Pulumi.*.yaml
 *.p12
 secrets.json
 appsettings.*.local.json
+venv/

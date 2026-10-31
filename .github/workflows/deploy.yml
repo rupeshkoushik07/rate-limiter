@@ -78,11 +78,16 @@ jobs:
           az storage blob upload --account-name "$SA" -c pulumi -n config/Pulumi.dev.yaml -f Pulumi.dev.yaml \
             --auth-mode login --overwrite -o none
 
+      - name: Install the CrossGuard policy pack
+        run: |
+          python3 -m venv policy/venv
+          policy/venv/bin/pip install -q -r policy/requirements.txt
+
       - name: "Pulumi up #1: infrastructure (keeps the running image)"
         working-directory: infra
         run: |
           PREV=$(pulumi stack output imageTag 2>/dev/null || true)
-          pulumi up --yes --skip-preview -c imageTag="$PREV"
+          pulumi up --yes --policy-pack ../policy -c imageTag="$PREV"
 
       - name: Build the image
         run: |
@@ -170,7 +175,7 @@ jobs:
 
       - name: "Pulumi up #2: roll out the new image (by digest, the exact bytes that were scanned and signed)"
         working-directory: infra
-        run: pulumi up --yes --skip-preview -c imageTag="$DIGEST"
+        run: pulumi up --yes --policy-pack ../policy -c imageTag="$DIGEST"
 
       - name: Show the dashboard URL
         run: |
