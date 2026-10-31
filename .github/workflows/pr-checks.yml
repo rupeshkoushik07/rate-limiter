@@ -1,4 +1,4 @@
-# Checks on every pull request. CodeQL (SAST) and secret scanning run natively through repo settings.
+# Checks on every pull request. CodeQL (SAST) runs in codeql.yml; secret scanning through repo settings.
 name: pr-checks
 
 on:
