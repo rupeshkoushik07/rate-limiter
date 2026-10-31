@@ -66,11 +66,24 @@ return await Deployment.RunAsync(() =>
     var idWorker = Identity("id-worker");
     var allApps = new[] { idApi, idWriter, idWebhook, idFakeMews, idWorker };
 
+    // Every role an app's identity gets, so the app can depend on them: an app created before its
+    // permissions exist fails to read its Key Vault secrets.
+    var grantsFor = new Dictionary<string, List<Resource>>();
     RoleAssignment Grant(string name, Input<string> principalId, string role, Input<string> scope,
-        string principalType = "ServicePrincipal") => new(name, new RoleAssignmentArgs
+        string principalType = "ServicePrincipal", UserAssignedIdentity? owner = null)
     {
-        PrincipalId = principalId, PrincipalType = principalType, RoleDefinitionId = RoleId(role), Scope = scope,
-    });
+        var assignment = new RoleAssignment(name, new RoleAssignmentArgs
+        {
+            PrincipalId = principalId, PrincipalType = principalType, RoleDefinitionId = RoleId(role), Scope = scope,
+        });
+        if (owner is not null)
+        {
+            var key = owner.GetResourceName();
+            if (!grantsFor.ContainsKey(key)) grantsFor[key] = [];
+            grantsFor[key].Add(assignment);
+        }
+        return assignment;
+    }
 
     // ---------- Container registry: apps pull with their identity, GitHub pushes with its own ----------
     var acr = new Registry("acr", new RegistryArgs
@@ -80,7 +93,7 @@ return await Deployment.RunAsync(() =>
         Sku = new Pulumi.AzureNative.ContainerRegistry.Inputs.SkuArgs { Name = "Basic" },
         AdminUserEnabled = false,                      // no shared admin password
     });
-    foreach (var id in allApps) Grant($"acrpull-{id.GetResourceName()}", id.PrincipalId, AcrPull, acr.Id);
+    foreach (var id in allApps) Grant($"acrpull-{id.GetResourceName()}", id.PrincipalId, AcrPull, acr.Id, owner: id);
     Grant("acrpush-github", deployerObjectId, AcrPush, acr.Id);
 
     // ---------- Key Vault: RBAC mode, roles granted per secret ----------
@@ -130,7 +143,7 @@ return await Deployment.RunAsync(() =>
     void ReadSecrets(UserAssignedIdentity who, params Secret[] secrets)
     {
         foreach (var s in secrets)
-            Grant($"kv-{who.GetResourceName()}-{s.GetResourceName()}", who.PrincipalId, KeyVaultSecretsUser, s.Id);
+            Grant($"kv-{who.GetResourceName()}-{s.GetResourceName()}", who.PrincipalId, KeyVaultSecretsUser, s.Id, owner: who);
     }
     ReadSecrets(idApi, entraSecret, dbAppSecret, dbRelaySecret);                           // no Mews tokens, no LLM key
     ReadSecrets(idWorker, anthropicKey, dbAppSecret);                                      // only the LLM key + database
@@ -263,7 +276,7 @@ return await Deployment.RunAsync(() =>
                 },
                 Scale = new ScaleArgs { MinReplicas = 1, MaxReplicas = 1 },
             },
-        });
+        }, new CustomResourceOptions { DependsOn = grantsFor.GetValueOrDefault(id.GetResourceName()) ?? [] });
     }
 
     var fakeMews = App("ca-fakemews", idFakeMews, "FakeMews",
