@@ -155,9 +155,9 @@ jobs:
           echo "::add-mask::$ADMIN_PW"; echo "::add-mask::$APP_PW"; echo "::add-mask::$RELAY_PW"
           IP=$(curl -s https://api.ipify.org)
           # Open the database to this runner only, for this step only.
-          az postgres flexible-server firewall-rule create -g "$RG" -n "$SERVER" --rule-name gh-runner \
+          az postgres flexible-server firewall-rule create -g "$RG" --server-name "$SERVER" --name gh-runner \
             --start-ip-address "$IP" --end-ip-address "$IP" -o none
-          trap 'az postgres flexible-server firewall-rule delete -g "$RG" -n "$SERVER" --rule-name gh-runner --yes -o none' EXIT
+          trap 'az postgres flexible-server firewall-rule delete -g "$RG" --server-name "$SERVER" --name gh-runner --yes -o none' EXIT
           export PGPASSWORD="$ADMIN_PW"
           CONN="host=$HOST dbname=ratedemo user=pgowner sslmode=require"
           psql "$CONN" -v ON_ERROR_STOP=1 -v app_pw="$APP_PW" -v relay_pw="$RELAY_PW" <<'SQL'
