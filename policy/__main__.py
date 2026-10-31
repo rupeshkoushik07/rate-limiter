@@ -29,7 +29,8 @@ def _props(args, *path):
 def key_vault_rbac(args, report):
     if args.resource_type == "azure-native:keyvault:Vault":
         if _props(args, "properties", "enableRbacAuthorization") is not True:
-            report("Key Vault must use Azure RBAC (per-secret roles), not access policies.")
+            report("Key Vault must use Azure RBAC (per-secret roles), not access policies. "
+                   f"(got {_props(args, 'properties', 'enableRbacAuthorization')!r}; keys {sorted((args.props.get('properties') or {}).keys())})")
         if _props(args, "properties", "enableSoftDelete") is False:
             report("Key Vault soft delete must stay on, so a deleted secret can be recovered.")
 
@@ -37,7 +38,8 @@ def key_vault_rbac(args, report):
 def service_bus_no_keys(args, report):
     if args.resource_type == "azure-native:servicebus:Namespace":
         if _props(args, "disableLocalAuth") is not True:
-            report("Service Bus SAS keys must be off (disableLocalAuth): identities only.")
+            report("Service Bus SAS keys must be off (disableLocalAuth): identities only. "
+                   f"(got {_props(args, 'disableLocalAuth')!r}; keys {sorted(args.props.keys())})")
 
 
 def registry_no_admin(args, report):
