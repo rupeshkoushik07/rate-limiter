@@ -1,0 +1,10 @@
+# CODEQL CANARY: deliberately vulnerable, never merge. Script injection from an issue comment.
+# issue_comment workflows only run from the default branch, so this file never executes from the PR.
+name: codeql-canary
+on: issue_comment
+permissions: {}
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.event.comment.body }}"
